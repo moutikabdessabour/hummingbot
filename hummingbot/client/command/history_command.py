@@ -240,7 +240,15 @@ class HistoryCommand:
         if len(df) > 0:
             # Check if number of trades exceed maximum number of trades to display
             if len(df) > MAXIMUM_TRADE_FILLS_DISPLAY_OUTPUT:
+                # Set display options to max, so that the client does not display truncated data
+                pd.set_option('display.max_rows', 500)
+                pd.set_option('display.max_columns', 500)
+                pd.set_option('display.width', 1000)
                 df_lines = str(df[:MAXIMUM_TRADE_FILLS_DISPLAY_OUTPUT]).split("\n")
+                # Reset to normal, so that pandas's default autodetect width still works
+                pd.set_option('display.max_rows', 0)
+                pd.set_option('display.max_columns', 0)
+                pd.set_option('display.width', 0)
                 self._notify(
                     f"\n  Showing last {MAXIMUM_TRADE_FILLS_DISPLAY_OUTPUT} trades in the current session.")
             else:
