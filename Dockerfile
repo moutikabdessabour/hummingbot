@@ -9,7 +9,9 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Add hummingbot user
-RUN useradd -m -s /bin/bash hummingbot
+RUN adduser --disabled-password --gecos '' hummingbot
+RUN adduser hummingbot sudo
+RUN echo '%sudo ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
 
 # Switch to hummingbot user
 USER hummingbot:hummingbot
@@ -35,6 +37,9 @@ RUN curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.35.3/install.sh | b
     nvm cache clear && \
     npm cache clean --force && \
     rm -rf /home/hummingbot/.cache
+
+RUN curl -LO http://archive.ubuntu.com/ubuntu/pool/main/libf/libffi/libffi6_3.2.1-8_amd64.deb
+RUN sudo dpkg -i libffi6_3.2.1-8_amd64.deb
 
 # Copy environment only to optimize build caching, so changes in sources will not cause conda env invalidation
 COPY --chown=hummingbot:hummingbot setup/environment-linux.yml setup/
