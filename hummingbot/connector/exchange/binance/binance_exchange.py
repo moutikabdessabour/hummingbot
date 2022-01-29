@@ -720,6 +720,7 @@ class BinanceExchange(ExchangeBase):
                     if execution_type == "TRADE":
                         tracked_order = self._order_tracker.fetch_order(client_order_id=client_order_id)
                         if tracked_order is not None:
+                            self.logger().info(f"\n@@@@\n{event_message}\n")
                             trade_update = TradeUpdate(
                                 trade_id=str(event_message["t"]),
                                 client_order_id=client_order_id,

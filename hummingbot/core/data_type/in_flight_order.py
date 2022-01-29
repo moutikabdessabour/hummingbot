@@ -1,5 +1,6 @@
 import asyncio
 import copy
+import logging
 import math
 
 from async_timeout import timeout
@@ -343,6 +344,13 @@ class InFlightOrder:
         return: True if the order gets updated otherwise False
         """
         trade_id: str = trade_update.trade_id
+
+        if not self.exchange_order_id == trade_update.exchange_order_id:
+            logging.getLogger(__name__).error(f"\n>>>>> The exchange order id in the TradeUpdate is different then the "
+                                              f"registered\nRegistered ID = {self.exchange_order_id} | "
+                                              f"ID in the event = {trade_update.exchange_order_id}\n{trade_update}\n",
+                                              exc_info=True)
+
         if self.exchange_order_id is None and trade_update.exchange_order_id:
             self.update_exchange_order_id(trade_update.exchange_order_id)
 
