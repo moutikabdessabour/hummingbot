@@ -503,30 +503,26 @@ class GatewayEVMAMM(ConnectorBase):
                 self.logger().error(f"Error while trying to approve token {token_symbol} for {self.connector_name}: "
                                     "txHash key not found in transaction status.")
                 continue
-            if transaction_status["txStatus"] == 1:
-                if transaction_status["txReceipt"]["status"] == 1:
-                    self.logger().info(f"Token approval for {tracked_approval.client_order_id} on {self.connector_name} "
-                                       f"successful.")
-                    self.trigger_event(
-                        TokenApprovalEvent.ApprovalSuccessful,
-                        TokenApprovalSuccessEvent(
-                            self.current_timestamp,
-                            self.connector_name,
-                            token_symbol
-                        )
+            if transaction_status["txStatus"] in [-1, 1]:
+                if transaction_status["txStatus"] == 1 and transaction_status["txReceipt"]["status"] == 1:
+                    log_msg = (
+                        f"Token approval for {tracked_approval.client_order_id} on {self.connector_name} successful."
                     )
+                    event_tag = TokenApprovalEvent.ApprovalSuccessful
+                    event_cls = TokenApprovalSuccessEvent
                 else:
-                    self.logger().warning(
-                        f"Token approval for {tracked_approval.client_order_id} on {self.connector_name} failed."
+                    log_msg = f"Token approval for {tracked_approval.client_order_id} on {self.connector_name} failed."
+                    event_tag = TokenApprovalEvent.ApprovalFailed
+                    event_cls = TokenApprovalFailureEvent
+                self.logger().info(log_msg)
+                self.trigger_event(
+                    event_tag,
+                    event_cls(
+                        self.current_timestamp,
+                        self.connector_name,
+                        token_symbol
                     )
-                    self.trigger_event(
-                        TokenApprovalEvent.ApprovalFailed,
-                        TokenApprovalFailureEvent(
-                            self.current_timestamp,
-                            self.connector_name,
-                            token_symbol
-                        )
-                    )
+                )
                 self.stop_tracking_order(tracked_approval.client_order_id)
 
     async def _update_canceled_orders(self,
@@ -603,63 +599,61 @@ class GatewayEVMAMM(ConnectorBase):
                 self.logger().error(f"No txHash field for transaction status of {tracked_order.client_order_id}: "
                                     f"{update_result}.")
                 continue
-            if update_result["txStatus"] == 1:
-                if update_result["txReceipt"]["status"] == 1:
-                    gas_used: int = update_result["txReceipt"]["gasUsed"]
-                    gas_price: Decimal = tracked_order.gas_price
-                    fee: Decimal = Decimal(str(gas_used)) * Decimal(str(gas_price)) / Decimal(str(1e9))
-                    self.trigger_event(
-                        MarketEvent.OrderFilled,
-                        OrderFilledEvent(
-                            self.current_timestamp,
-                            tracked_order.client_order_id,
-                            tracked_order.trading_pair,
-                            tracked_order.trade_type,
-                            tracked_order.order_type,
-                            Decimal(str(tracked_order.price)),
-                            Decimal(str(tracked_order.amount)),
-                            AddedToCostTradeFee(
-                                flat_fees=[TokenAmount(tracked_order.fee_asset, Decimal(str(fee)))]
-                            ),
-                            exchange_trade_id=tracked_order.exchange_order_id
-                        )
+            if update_result["txStatus"] == 1 and update_result["txReceipt"]["status"] == 1:
+                gas_used: int = update_result["txReceipt"]["gasUsed"]
+                gas_price: Decimal = tracked_order.gas_price
+                fee: Decimal = Decimal(str(gas_used)) * Decimal(str(gas_price)) / Decimal(str(1e9))
+                self.trigger_event(
+                    MarketEvent.OrderFilled,
+                    OrderFilledEvent(
+                        self.current_timestamp,
+                        tracked_order.client_order_id,
+                        tracked_order.trading_pair,
+                        tracked_order.trade_type,
+                        tracked_order.order_type,
+                        Decimal(str(tracked_order.price)),
+                        Decimal(str(tracked_order.amount)),
+                        AddedToCostTradeFee(
+                            flat_fees=[TokenAmount(tracked_order.fee_asset, Decimal(str(fee)))]
+                        ),
+                        exchange_trade_id=tracked_order.exchange_order_id
                     )
-                    tracked_order.last_state = "FILLED"
-                    self.logger().info(f"The {tracked_order.trade_type.name} order "
-                                       f"{tracked_order.client_order_id} has completed "
-                                       f"according to order status API.")
-                    event_tag: MarketEvent = (
-                        MarketEvent.BuyOrderCompleted if tracked_order.trade_type is TradeType.BUY
-                        else MarketEvent.SellOrderCompleted
+                )
+                tracked_order.last_state = "FILLED"
+                self.logger().info(f"The {tracked_order.trade_type.name} order "
+                                   f"{tracked_order.client_order_id} has completed "
+                                   f"according to order status API.")
+                event_tag: MarketEvent = (
+                    MarketEvent.BuyOrderCompleted if tracked_order.trade_type is TradeType.BUY
+                    else MarketEvent.SellOrderCompleted
+                )
+                event_class: Union[Type[BuyOrderCompletedEvent], Type[SellOrderCompletedEvent]] = (
+                    BuyOrderCompletedEvent if tracked_order.trade_type is TradeType.BUY
+                    else SellOrderCompletedEvent
+                )
+                self.trigger_event(
+                    event_tag,
+                    event_class(
+                        timestamp=self.current_timestamp,
+                        order_id=tracked_order.client_order_id,
+                        base_asset=tracked_order.base_asset,
+                        quote_asset=tracked_order.quote_asset,
+                        base_asset_amount=tracked_order.executed_amount_base,
+                        quote_asset_amount=tracked_order.executed_amount_quote,
+                        order_type=tracked_order.order_type,
+                        exchange_order_id=tracked_order.exchange_order_id
                     )
-                    event_class: Union[Type[BuyOrderCompletedEvent], Type[SellOrderCompletedEvent]] = (
-                        BuyOrderCompletedEvent if tracked_order.trade_type is TradeType.BUY
-                        else SellOrderCompletedEvent
-                    )
-                    self.trigger_event(
-                        event_tag,
-                        event_class(
-                            timestamp=self.current_timestamp,
-                            order_id=tracked_order.client_order_id,
-                            base_asset=tracked_order.base_asset,
-                            quote_asset=tracked_order.quote_asset,
-                            fee_asset=tracked_order.fee_asset,
-                            base_asset_amount=tracked_order.executed_amount_base,
-                            quote_asset_amount=tracked_order.executed_amount_quote,
-                            fee_amount=fee,
-                            order_type=tracked_order.order_type,
-                            exchange_order_id=tracked_order.exchange_order_id
-                        )
-                    )
-                else:
-                    self.logger().info(
-                        f"The market order {tracked_order.client_order_id} has failed according to order status API. ")
-                    self.trigger_event(MarketEvent.OrderFailure,
-                                       MarketOrderFailureEvent(
-                                           self.current_timestamp,
-                                           tracked_order.client_order_id,
-                                           tracked_order.order_type
-                                       ))
+                )
+                self.stop_tracking_order(tracked_order.client_order_id)
+            elif update_result["txStatus"] in [-1, 1]:
+                self.logger().info(
+                    f"The order {tracked_order.client_order_id} has failed according to order status API. ")
+                self.trigger_event(MarketEvent.OrderFailure,
+                                   MarketOrderFailureEvent(
+                                       self.current_timestamp,
+                                       tracked_order.client_order_id,
+                                       tracked_order.order_type
+                                   ))
                 self.stop_tracking_order(tracked_order.client_order_id)
 
     def get_taker_order_type(self):
