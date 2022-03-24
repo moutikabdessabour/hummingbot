@@ -1,40 +1,34 @@
-from bin import path_util     # noqa: F401
-
-from aiounittest import async_test
-from aiohttp import ClientSession
 import asyncio
-from async_timeout import timeout
+import time
+import unittest
 from contextlib import ExitStack
 from decimal import Decimal
 from os.path import join, realpath
-import time
-from typing import List, Dict
-import unittest
+from test.mock.http_recorder import HttpPlayer
+from typing import Dict, List
 from unittest.mock import patch
 
-from hummingbot.connector.gateway_EVM_AMM import (
-    GatewayEVMAMM,
-    GatewayInFlightOrder,
-)
-from hummingbot.core.clock import (
-    Clock,
-    ClockMode,
-)
+from aiohttp import ClientSession
+from aiounittest import async_test
+from async_timeout import timeout
+
+from bin import path_util  # noqa: F401
+from hummingbot.connector.gateway_EVM_AMM import GatewayEVMAMM, GatewayInFlightOrder
+from hummingbot.core.clock import Clock, ClockMode
 from hummingbot.core.event.event_logger import EventLogger
 from hummingbot.core.event.events import (
-    TradeType,
+    BuyOrderCreatedEvent,
+    MarketEvent,
+    MarketOrderFailureEvent,
+    OrderFilledEvent,
     OrderType,
+    SellOrderCreatedEvent,
     TokenApprovalEvent,
     TokenApprovalSuccessEvent,
-    MarketEvent,
-    OrderFilledEvent,
-    BuyOrderCreatedEvent,
-    SellOrderCreatedEvent, MarketOrderFailureEvent,
+    TradeType
 )
 from hummingbot.core.gateway.gateway_http_client import GatewayHttpClient
 from hummingbot.core.utils.async_utils import safe_ensure_future
-
-from test.mock.http_recorder import HttpPlayer
 
 ev_loop: asyncio.AbstractEventLoop = asyncio.get_event_loop()
 s_decimal_0: Decimal = Decimal(0)
