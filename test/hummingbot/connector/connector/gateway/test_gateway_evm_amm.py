@@ -29,7 +29,7 @@ from hummingbot.core.event.events import (
     MarketEvent,
     OrderFilledEvent,
     BuyOrderCreatedEvent,
-    SellOrderCreatedEvent,
+    SellOrderCreatedEvent, MarketOrderFailureEvent,
 )
 from hummingbot.core.gateway.gateway_http_client import GatewayHttpClient
 from hummingbot.core.utils.async_utils import safe_ensure_future
@@ -101,7 +101,7 @@ class GatewayEVMAMMConnectorUnitTest(unittest.TestCase):
     async def test_update_balances(self):
         self._connector._account_balances.clear()
         self.assertEqual(0, len(self._connector.get_all_balances()))
-        await self._connector._update_balances(on_interval=False)
+        await self._connector.update_balances(on_interval=False)
         self.assertEqual(3, len(self._connector.get_all_balances()))
         self.assertAlmostEqual(Decimal("58.919555905095740084"), self._connector.get_balance("ETH"))
         self.assertAlmostEqual(Decimal("1000"), self._connector.get_balance("DAI"))
@@ -156,20 +156,26 @@ class GatewayEVMAMMConnectorUnitTest(unittest.TestCase):
             ),
         ]
 
-        event_logger: EventLogger = EventLogger()
-        self._connector.add_listener(TokenApprovalEvent.ApprovalSuccessful, event_logger)
-        self._connector.add_listener(TokenApprovalEvent.ApprovalFailed, event_logger)
+        success_event_logger: EventLogger = EventLogger()
+        failure_event_logger: EventLogger = EventLogger()
+        self._connector.add_listener(TokenApprovalEvent.ApprovalSuccessful, success_event_logger)
+        self._connector.add_listener(TokenApprovalEvent.ApprovalFailed, failure_event_logger)
 
         try:
             await self._connector._update_token_approval_status(successful_records + fake_records)
-            self.assertEqual(2, len(event_logger.event_log))
+            self.assertEqual(2, len(success_event_logger.event_log))
             self.assertEqual(
                 {"WETH", "DAI"},
-                set(e.token_symbol for e in event_logger.event_log)
+                set(e.token_symbol for e in success_event_logger.event_log)
+            )
+            self.assertEqual(2, len(failure_event_logger.event_log))
+            self.assertEqual(
+                {"WETH", "DAI"},
+                set(e.token_symbol for e in success_event_logger.event_log)
             )
         finally:
-            self._connector.remove_listener(TokenApprovalEvent.ApprovalSuccessful, event_logger)
-            self._connector.remove_listener(TokenApprovalEvent.ApprovalFailed, event_logger)
+            self._connector.remove_listener(TokenApprovalEvent.ApprovalSuccessful, success_event_logger)
+            self._connector.remove_listener(TokenApprovalEvent.ApprovalFailed, failure_event_logger)
 
     @async_test(loop=ev_loop)
     async def test_update_order_status(self):
@@ -212,18 +218,24 @@ class GatewayEVMAMMConnectorUnitTest(unittest.TestCase):
             )
         ]
 
-        event_logger: EventLogger = EventLogger()
-        self._connector.add_listener(MarketEvent.OrderFilled, event_logger)
+        success_event_logger: EventLogger = EventLogger()
+        failure_event_logger: EventLogger = EventLogger()
+        self._connector.add_listener(MarketEvent.OrderFilled, success_event_logger)
+        self._connector.add_listener(MarketEvent.OrderFailure, failure_event_logger)
 
         try:
-            await self._connector._update_order_status(successful_records + fake_records)
-            self.assertEqual(1, len(event_logger.event_log))
-            filled_event: OrderFilledEvent = event_logger.event_log[0]
+            await self._connector.update_order_status(successful_records + fake_records)
+            self.assertEqual(1, len(success_event_logger.event_log))
+            filled_event: OrderFilledEvent = success_event_logger.event_log[0]
             self.assertEqual(
                 "0xc7287236f64484b476cfbec0fd21bc49d85f8850c8885665003928a122041e18",       # noqa: mock
                 filled_event.exchange_trade_id)
+            self.assertEqual(1, len(failure_event_logger.event_log))
+            failed_event: MarketOrderFailureEvent = failure_event_logger.event_log[0]
+            self.assertEqual(fake_records[0].client_order_id, failed_event.order_id)
         finally:
-            self._connector.remove_listener(MarketEvent.OrderFilled, event_logger)
+            self._connector.remove_listener(MarketEvent.OrderFilled, success_event_logger)
+            self._connector.remove_listener(MarketEvent.OrderFailure, failure_event_logger)
 
     @async_test(loop=ev_loop)
     async def test_get_quote_price(self):
